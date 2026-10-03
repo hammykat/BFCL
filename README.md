@@ -1,4 +1,7 @@
 # BFCL
-BFCL - BlokkForge Core Library - is an optimized C++ SIMD and Multithreading library designed specifically to be efficient for heavy amounts of data processing. It includes lots of helper optimized data structures for high-performance applications while aiming to be easy to use. 
 
-> Currently this project is in a very early development stage - Stay tuned for updates!
+**BFCL (BlokkForge Core Library)** is a C++ library focused on high-performance data processing, with SIMD, multithreading, and optimized data structures built for handling large amounts of data efficiently.
+
+It is designed to provide **fast, reusable building blocks** for performance-focused applications while keeping the API simple and approachable.
+
+> **BFCL is currently in very early development.** Expect major changes as the library continues to evolve.
