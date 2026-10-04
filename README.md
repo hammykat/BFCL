@@ -11,4 +11,4 @@ It is designed to provide **fast, reusable building blocks** for performance-foc
 BFCL features custom data structures:
 * [`unordered_queue`](Documentation/unordered_queue.md) - A queue optimized for fast removals
 * [`coordinate_tree`](Documentation/coordinate_tree.md) - A optimized tree that organizes data into groups based on their position in a 2D space
-* ['unordered_table'](Documentation/table.md) - An optimized table with multithreading and a fixed max capacity
+* [`unordered_table`](Documentation/table.md) - An optimized table with multithreading and a fixed max capacity
