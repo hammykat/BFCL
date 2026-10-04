@@ -16,6 +16,8 @@ private:
 
 public:
 
+    unordered_queue() = default;
+
     unordered_queue(const unordered_queue&) = delete;
     unordered_queue& operator=(const unordered_queue&) = delete;
 
