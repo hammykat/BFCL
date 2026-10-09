@@ -5,33 +5,36 @@
 #include <string>
 #include <stdexcept>
 #include <memory>
+#include <mutex>
 
-// The unordered_queue class is a data structure that allows for efficient insertion 
-// and removal of items in an unordered manner. It maintains a vector of pointers to 
-// items and a corresponding vector to track ownership of those items. The class 
-// provides methods for adding, removing, and accessing items, while ensuring proper 
-// memory management for owned items.
+// Check unoredered_queue.hpp for more information about this class. This is a 
+// concurrent version of the unordered_queue class, which allows for thread-safe 
+// operations on the queue. It uses mutexes to ensure that multiple threads can 
+// safely access and modify the queue without causing data races or inconsistencies.
 
 template <typename Type>
-class unordered_queue
+class concurrent_unordered_queue
 {
 private:
-	std::vector<Type*> Items; // Pointers to the items in the queue
-	std::vector<uint8_t> owned; // Represents whether the queue owns the item (1) or not (0) -- Used for cleanup (freeing values it owns)
+    std::vector<Type*> Items; // Pointers to the items in the queue
+    std::vector<uint8_t> owned; // Represents whether the queue owns the item (1) or not (0) -- Used for cleanup (freeing values it owns)
     uint32_t ItemCount = 0; // Represents the number of items in the queue
 
+    // Lock for thread-safe operations
+    mutable std::mutex Lock;
+
 public:
-    // Default constructor
-    unordered_queue() = default;
 
-    // No copying
-    unordered_queue(const unordered_queue&) = delete;
-    unordered_queue& operator=(const unordered_queue&) = delete;
+    concurrent_unordered_queue() = default;
 
-    ~unordered_queue()
+    concurrent_unordered_queue(const concurrent_unordered_queue&) = delete;
+    concurrent_unordered_queue& operator=(const concurrent_unordered_queue&) = delete;
+
+    ~concurrent_unordered_queue()
     {
-        // Remove all the items
-        remove_all();
+        std::unique_lock<std::mutex> mtx(Lock);
+
+        remove_all_unlocked();
     }
 
     // Get a reference to a value
@@ -40,7 +43,8 @@ public:
         std::source_location Location = std::source_location::current()
         )
     {
-        // Invalid index; exceeds the last index
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (Idx >= ItemCount)
         {
             ThrowError(
@@ -58,6 +62,8 @@ public:
         std::source_location Location = std::source_location::current()
         )
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (Idx >= ItemCount)
         {
             ThrowError(
@@ -73,6 +79,8 @@ public:
     [[nodiscard]] inline
         const std::vector<Type*>& data() const
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         return Items;
     }
 
@@ -82,6 +90,8 @@ public:
             std::source_location Location = std::source_location::current()
         )
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (ItemCount == 0)
         {
             ThrowError(
@@ -93,7 +103,7 @@ public:
         Type Result =
             (owned[0] ? std::move(*Items[0]) : *Items[0]);
 
-        remove_at(0);
+        remove_at_unlocked(0);
 
         return Result;
     }
@@ -104,6 +114,8 @@ public:
             std::source_location Location = std::source_location::current()
         )
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (ItemCount == 0)
         {
             ThrowError(
@@ -117,9 +129,47 @@ public:
                 ? std::move(*Items[ItemCount - 1])
                 : *Items[ItemCount - 1]);
 
-        remove_at(ItemCount - 1);
+        remove_at_unlocked(ItemCount - 1);
 
         return Result;
+    }
+
+    [[nodiscard]] inline
+        bool try_pop_front(Type& Result)
+    {
+        std::unique_lock<std::mutex> mtx(Lock);
+
+        if (ItemCount == 0)
+            return false;
+
+        Type Value =
+            (owned[0] ? std::move(*Items[0]) : *Items[0]);
+
+        remove_at_unlocked(0);
+
+        Result = std::move(Value);
+
+        return true;
+    }
+
+    [[nodiscard]] inline
+        bool try_pop_back(Type& Result)
+    {
+        std::unique_lock<std::mutex> mtx(Lock);
+
+        if (ItemCount == 0)
+            return false;
+
+        uint32_t Idx = ItemCount - 1;
+
+        Type Value =
+            (owned[Idx] ? std::move(*Items[Idx]) : *Items[Idx]);
+
+        remove_at_unlocked(Idx);
+
+        Result = std::move(Value);
+
+        return true;
     }
 
     // Get and remove an item at a specific index
@@ -129,6 +179,8 @@ public:
             std::source_location Location = std::source_location::current()
         )
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (idx >= ItemCount)
         {
             ThrowError(
@@ -140,7 +192,7 @@ public:
         Type Result =
             (owned[idx] ? std::move(*Items[idx]) : *Items[idx]);
 
-        remove_at(idx);
+        remove_at_unlocked(idx);
 
         return Result;
     }
@@ -148,6 +200,8 @@ public:
     // Add a borrowed value to the back
     inline void push_ref(Type& val)
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         Items.push_back(&val);
 
         try
@@ -166,27 +220,22 @@ public:
     // Add an owned value to the back
     inline void push(Type val)
     {
-        // unique_ptr temporarily owns the object
+        std::unique_lock<std::mutex> mtx(Lock);
+
         auto ptr = std::make_unique<Type>(std::move(val));
 
-        // Add the raw pointer to Items
         Items.push_back(ptr.get());
 
         try
         {
-            // Mark this item as owned
             owned.push_back(true);
         }
         catch (...)
         {
-            // Undo the Items insertion
             Items.pop_back();
-
-            // ptr still owns the object
             throw;
         }
 
-        // Everything succeeded, so transfer ownership
         ptr.release();
 
         ++ItemCount;
@@ -196,6 +245,8 @@ public:
     [[nodiscard]] inline
         bool empty() const
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         return ItemCount == 0;
     }
 
@@ -205,6 +256,8 @@ public:
             std::source_location Location = std::source_location::current()
         ) const
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (ItemCount > 0)
             return *Items[0];
 
@@ -220,6 +273,8 @@ public:
             std::source_location Location = std::source_location::current()
         ) const
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (ItemCount > 0)
             return *Items[ItemCount - 1];
 
@@ -233,24 +288,24 @@ public:
     [[nodiscard]] inline
         uint32_t size() const
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         return ItemCount;
     }
 
     // Replace the items with another vector
     inline void assign(std::vector<Type*>& Target)
     {
-        // Make sure the target isn't itself
+        std::unique_lock<std::mutex> mtx(Lock);
+
         if (&Target == &Items)
             return;
 
-        // Clear all current items
-        remove_all();
+        remove_all_unlocked();
 
-        // Copy the pointers
         Items = Target;
-        ItemCount = Target.size();
+        ItemCount = static_cast<uint32_t>(Target.size());
 
-        // All assigned pointers are borrowed
         owned.clear();
         owned.reserve(ItemCount);
 
@@ -263,12 +318,31 @@ public:
     // Reserve a specific number of items
     inline void reserve(uint32_t Count)
     {
+        std::unique_lock<std::mutex> mtx(Lock);
+
         Items.reserve(Count);
         owned.reserve(Count);
     }
 
     // Remove an item at a specific index
     inline void remove_at(uint32_t idx)
+    {
+        std::unique_lock<std::mutex> mtx(Lock);
+
+        remove_at_unlocked(idx);
+    }
+
+    // Delete all the objects
+    inline void remove_all()
+    {
+        std::unique_lock<std::mutex> mtx(Lock);
+
+        remove_all_unlocked();
+    }
+
+private:
+
+    inline void remove_at_unlocked(uint32_t idx)
     {
         if (idx >= ItemCount)
         {
@@ -280,11 +354,9 @@ public:
 
         ItemCount--;
 
-        // Swap the item with the last item
         std::swap(Items[idx], Items[ItemCount]);
         std::swap(owned[idx], owned[ItemCount]);
 
-        // Delete the removed item if we own it
         if (owned[ItemCount])
             delete Items[ItemCount];
 
@@ -292,18 +364,19 @@ public:
         owned.pop_back();
     }
 
-    // Delete all the objects
-    inline void remove_all()
+    inline void remove_all_unlocked()
     {
         while (ItemCount > 0)
-            remove_at(ItemCount - 1);
+            remove_at_unlocked(ItemCount - 1);
     }
+
+public:
 
     [[noreturn]] inline
         void ThrowError(
             const std::string& Message,
             const std::source_location& Location
-        )
+        ) const
     {
         throw std::runtime_error(
             "BFCL: "
